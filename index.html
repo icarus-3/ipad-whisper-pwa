@@ -124,7 +124,7 @@ async function processNext(){
       $("live").textContent="（静音，已跳过）";
     }else{
       const t0=performance.now();
-      const result=await transcriber(audio16,{language:"english",task:"transcribe"});
+      const result=await transcriber(audio16);
       const dt=(performance.now()-t0)/1000,text=(result?.text??"").trim();
 
       inferenceTimes.push(dt);
