@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0b0b0c">
-<title>iPad Whisper Live v0.4 Large Turbo</title>
+<title>iPad Whisper Live v0.5 Distil Medium</title>
 <style>
 :root{color-scheme:dark;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif}
 *{box-sizing:border-box}
@@ -22,11 +22,11 @@ button:disabled{opacity:.4}.status{margin-top:10px;color:#bbb;white-space:pre-wr
 </style>
 </head>
 <body><main>
-<h1>iPad Whisper Live v0.4</h1>
-<div class="small">本地麦克风 → 48 kHz → 16 kHz → Whisper Large-v3-Turbo → 英文字幕</div>
+<h1>iPad Whisper Live v0.5</h1>
+<div class="small">本地麦克风 → 48 kHz → 16 kHz → Distil-Whisper Medium.en q4 → 英文字幕</div>
 
 <div class="card">
-<button id="loadBtn">1. 加载 Large-v3-Turbo</button>
+<button id="loadBtn">1. 加载 Distil-Medium.en</button>
 <div id="modelStatus" class="status">尚未加载模型</div>
 <div id="barOuter"><div id="bar"></div></div>
 </div>
@@ -52,7 +52,7 @@ env.useBrowserCache=true;
 
 const $=id=>document.getElementById(id);
 const modelStatus=$("modelStatus"),audioStatus=$("audioStatus"),debug=$("debug");
-const MODEL_ID="onnx-community/whisper-large-v3-turbo";
+const MODEL_ID="onnx-community/distil-medium.en_timestamped";
 const chunkSeconds=5;
 
 let transcriber=null,stream=null,ctx=null,source=null,worklet=null,muteGain=null,workletURL=null;
@@ -64,28 +64,25 @@ function formatBytes(n){if(!Number.isFinite(n))return"";return n<1048576?(n/1024
 function average(a){return a.length?a.reduce((x,y)=>x+y,0)/a.length:0}
 
 async function detectBestDtype(){
-  if(!navigator.gpu)return"q4";
-  const adapter=await navigator.gpu.requestAdapter({powerPreference:"high-performance"});
-  if(!adapter)return"q4";
-  return adapter.features.has("shader-f16")?"q4f16":"q4";
+  return "q4";
 }
 
 $("loadBtn").onclick=async()=>{
   $("loadBtn").disabled=true;
   try{
     chosenDtype=await detectBestDtype();
-    modelStatus.textContent=`准备加载 Large-v3-Turbo ${chosenDtype}…首次需要联网下载。请保持 Safari 前台。`;
+    modelStatus.textContent=`准备加载 Distil-Medium.en ${chosenDtype}…首次需要联网下载。请保持 Safari 前台。`;
     transcriber=await pipeline("automatic-speech-recognition",MODEL_ID,{
       device:"webgpu",
       dtype:chosenDtype,
       progress_callback:p=>{
         if(p.status==="progress"&&Number.isFinite(p.progress)){
           $("bar").style.width=Math.max(0,Math.min(100,p.progress))+"%";
-          modelStatus.textContent=`Large-v3-Turbo ${chosenDtype}\n下载/加载：${p.file??""}\n${p.progress.toFixed(1)}% ${formatBytes(p.loaded??0)} / ${formatBytes(p.total??0)}`;
+          modelStatus.textContent=`Distil-Medium.en ${chosenDtype}\n下载/加载：${p.file??""}\n${p.progress.toFixed(1)}% ${formatBytes(p.loaded??0)} / ${formatBytes(p.total??0)}`;
         }
       }
     });
-    modelStatus.innerHTML='<span class="ok">Whisper Large-v3-Turbo 已加载 ✅</span><br>'+`设备：WebGPU，量化：${chosenDtype}`;
+    modelStatus.innerHTML='<span class="ok">Whisper Distil-Medium.en 已加载 ✅</span><br>'+`设备：WebGPU，量化：${chosenDtype}`;
     $("bar").style.width="100%";
     $("startBtn").disabled=false;
   }catch(e){setError(modelStatus,e);$("loadBtn").disabled=false}
@@ -120,7 +117,7 @@ async function processNext(){
 
   processing=true;
   const raw=takeSamples(need),audio16=resampleLinear(raw,sourceRate,16000),rms=rmsOf(audio16);
-  debug.textContent=`队列：${(queuedSamples/sourceRate).toFixed(1)} s\n当前块：${chunkSeconds}s → ${audio16.length} samples @16kHz\nRMS：${rms.toFixed(5)}\n模型：Large-v3-Turbo ${chosenDtype}\n正在推理…`;
+  debug.textContent=`队列：${(queuedSamples/sourceRate).toFixed(1)} s\n当前块：${chunkSeconds}s → ${audio16.length} samples @16kHz\nRMS：${rms.toFixed(5)}\n模型：Distil-Medium.en ${chosenDtype}\n正在推理…`;
 
   try{
     if(rms<0.0015){
@@ -140,7 +137,7 @@ async function processNext(){
       }
 
       const avg=average(inferenceTimes);
-      debug.textContent=`队列：${(queuedSamples/sourceRate).toFixed(1)} s\n本次推理：${dt.toFixed(2)} s\n本次 RTF：${(dt/chunkSeconds).toFixed(2)}×\n最近 ${inferenceTimes.length} 次平均：${avg.toFixed(2)} s\n平均 RTF：${(avg/chunkSeconds).toFixed(2)}×\n模型：Large-v3-Turbo ${chosenDtype}`;
+      debug.textContent=`队列：${(queuedSamples/sourceRate).toFixed(1)} s\n本次推理：${dt.toFixed(2)} s\n本次 RTF：${(dt/chunkSeconds).toFixed(2)}×\n最近 ${inferenceTimes.length} 次平均：${avg.toFixed(2)} s\n平均 RTF：${(avg/chunkSeconds).toFixed(2)}×\n模型：Distil-Medium.en ${chosenDtype}`;
     }
   }catch(e){setError(debug,e)}
   finally{processing=false;setTimeout(processNext,0)}
