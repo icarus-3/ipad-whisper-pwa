@@ -76,7 +76,7 @@ print("开始加载 Whisper...");
 
 transcriber = await pipeline(
 "automatic-speech-recognition",
-"Xenova/whisper-small.en",
+"Xenova/whisper-tiny.en",
 {
 device:"webgpu",
 progress_callback:(p)=>{
