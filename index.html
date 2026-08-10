@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#111111" />
+  <title>iPad Whisper PWA 自检</title>
+  <style>
+    :root { color-scheme: light dark; font-family: -apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif; }
+    body { max-width: 760px; margin: 0 auto; padding: 24px 18px 60px; line-height: 1.5; }
+    h1 { font-size: 26px; margin-bottom: 8px; }
+    .muted { opacity: .7; }
+    button { font: inherit; padding: 12px 16px; border-radius: 12px; border: 1px solid #8886; margin: 6px 6px 6px 0; }
+    .card { border: 1px solid #8885; border-radius: 14px; padding: 14px; margin: 12px 0; }
+    .ok { color: #2a9d4b; font-weight: 700; }
+    .bad { color: #d44; font-weight: 700; }
+    .warn { color: #c98b00; font-weight: 700; }
+    code { word-break: break-all; }
+    #meter { height: 12px; width: 100%; background: #8883; border-radius: 99px; overflow: hidden; }
+    #level { height: 100%; width: 0%; background: currentColor; }
+  </style>
+</head>
+<body>
+  <h1>iPad Whisper PWA 自检</h1>
+  <p class="muted">只在本机检测浏览器能力；不会上传音频。</p>
+
+  <div class="card">
+    <div>安全上下文：<span id="secure">检测中…</span></div>
+    <div>WebGPU：<span id="webgpu">检测中…</span></div>
+    <div>Wake Lock：<span id="wakelock">检测中…</span></div>
+    <div>Service Worker：<span id="sw">检测中…</span></div>
+  </div>
+
+  <div class="card">
+    <button id="gpuBtn">测试 WebGPU</button>
+    <div id="gpuDetail" class="muted">尚未测试</div>
+  </div>
+
+  <div class="card">
+    <button id="micBtn">开启麦克风测试</button>
+    <button id="stopBtn" disabled>停止麦克风</button>
+    <div id="micDetail" class="muted">尚未授权</div>
+    <div id="meter"><div id="level"></div></div>
+  </div>
+
+  <div class="card">
+    <button id="wakeBtn">保持屏幕常亮</button>
+    <div id="wakeDetail" class="muted">尚未启用</div>
+  </div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const mark = (el, ok, text) => {
+  el.className = ok === true ? "ok" : ok === false ? "bad" : "warn";
+  el.textContent = text;
+};
+
+mark($("secure"), window.isSecureContext, window.isSecureContext ? "通过" : "失败（必须 HTTPS）");
+mark($("webgpu"), !!navigator.gpu, !!navigator.gpu ? "API 存在" : "不可用");
+mark($("wakelock"), "wakeLock" in navigator, "wakeLock" in navigator ? "API 存在" : "不可用");
+mark($("sw"), "serviceWorker" in navigator, "serviceWorker" in navigator ? "API 存在" : "不可用");
+
+$("gpuBtn").onclick = async () => {
+  try {
+    if (!navigator.gpu) throw new Error("navigator.gpu 不存在");
+    const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
+    if (!adapter) throw new Error("无法获得 GPU adapter");
+    const device = await adapter.requestDevice();
+    $("gpuDetail").innerHTML =
+      '<span class="ok">WebGPU 可实际创建 device ✅</span><br>' +
+      'limits.maxBufferSize = <code>' + adapter.limits.maxBufferSize + '</code><br>' +
+      'limits.maxStorageBufferBindingSize = <code>' + adapter.limits.maxStorageBufferBindingSize + '</code>';
+    device.destroy();
+  } catch (e) {
+    $("gpuDetail").innerHTML = '<span class="bad">失败：</span><code>' + String(e) + '</code>';
+  }
+};
+
+let stream, ctx, analyser, raf;
+$("micBtn").onclick = async () => {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false
+      }
+    });
+    ctx = new AudioContext();
+    const src = ctx.createMediaStreamSource(stream);
+    analyser = ctx.createAnalyser();
+    analyser.fftSize = 2048;
+    src.connect(analyser);
+
+    const track = stream.getAudioTracks()[0];
+    const settings = track.getSettings();
+    $("micDetail").innerHTML =
+      '<span class="ok">麦克风工作 ✅</span><br>' +
+      'AudioContext sampleRate: <code>' + ctx.sampleRate + ' Hz</code><br>' +
+      'Track sampleRate: <code>' + (settings.sampleRate ?? "浏览器未报告") + '</code><br>' +
+      'channelCount: <code>' + (settings.channelCount ?? "浏览器未报告") + '</code>';
+
+    const data = new Uint8Array(analyser.fftSize);
+    const draw = () => {
+      analyser.getByteTimeDomainData(data);
+      let sum = 0;
+      for (const v of data) {
+        const x = (v - 128) / 128;
+        sum += x * x;
+      }
+      const rms = Math.sqrt(sum / data.length);
+      $("level").style.width = Math.min(100, rms * 500) + "%";
+      raf = requestAnimationFrame(draw);
+    };
+    draw();
+
+    $("micBtn").disabled = true;
+    $("stopBtn").disabled = false;
+  } catch (e) {
+    $("micDetail").innerHTML = '<span class="bad">失败：</span><code>' + String(e) + '</code>';
+  }
+};
+
+$("stopBtn").onclick = async () => {
+  cancelAnimationFrame(raf);
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  if (ctx) await ctx.close();
+  $("level").style.width = "0%";
+  $("micBtn").disabled = false;
+  $("stopBtn").disabled = true;
+};
+
+let wakeLock;
+$("wakeBtn").onclick = async () => {
+  try {
+    wakeLock = await navigator.wakeLock.request("screen");
+    $("wakeDetail").innerHTML = '<span class="ok">屏幕常亮已启用 ✅</span>';
+    wakeLock.addEventListener("release", () => {
+      $("wakeDetail").textContent = "Wake Lock 已释放";
+    });
+  } catch (e) {
+    $("wakeDetail").innerHTML = '<span class="bad">失败：</span><code>' + String(e) + '</code>';
+  }
+};
+</script>
+</body>
+</html>
